@@ -201,6 +201,11 @@ def _is_arcee_trinity_thinking(model: Optional[str]) -> bool:
     bare = (model or "").strip().lower().rsplit("/", 1)[-1]
     return bare == "trinity-large-thinking"
 
+def _is_deepseek_model(model: Optional[str]) -> bool:
+    """True for any DeepSeek model (direct or proxied via OpenRouter)."""
+    bare = (model or "").strip().lower().rsplit("/", 1)[-1]
+    return bare.startswith("deepseek")
+
 
 def _fixed_temperature_for_model(
     model: Optional[str],
