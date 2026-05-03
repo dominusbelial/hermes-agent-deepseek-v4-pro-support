@@ -339,6 +339,25 @@ class ChatCompletionsTransport(ProviderTransport):
         provider_name = str(params.get("provider_name") or "").strip().lower()
         base_url = params.get("base_url")
 
+        # DeepSeek: reasoning_effort as top-level, thinking in extra_body.
+        # DeepSeek accepts "high" and "max" only — map Hermes values.
+        model_lower = (params.get("model") or "").strip().lower()
+        is_deepseek = "deepseek" in model_lower and not is_openrouter and not is_nous
+        if is_deepseek:
+            if reasoning_config and isinstance(reasoning_config, dict):
+                _ds_effort = (reasoning_config.get("effort") or "medium").strip().lower()
+                if _ds_effort in ("low", "medium"):
+                    _ds_effort = "high"
+                elif _ds_effort == "xhigh":
+                    _ds_effort = "max"
+                api_kwargs["reasoning_effort"] = _ds_effort
+                # Thinking enabled by default; only send when explicitly disabled
+                if reasoning_config.get("enabled") is False:
+                    extra_body["thinking"] = {"type": "disabled"}
+            else:
+                # Hermes default when no reasoning config: medium → high
+                api_kwargs["reasoning_effort"] = "high"
+
         provider_prefs = params.get("provider_preferences")
         if provider_prefs and is_openrouter:
             extra_body["provider"] = provider_prefs

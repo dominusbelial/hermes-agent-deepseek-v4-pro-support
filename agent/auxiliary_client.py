@@ -196,6 +196,12 @@ def _is_kimi_model(model: Optional[str]) -> bool:
     return bare.startswith("kimi-") or bare == "kimi"
 
 
+def _is_deepseek_model(model: Optional[str]) -> bool:
+    """True for any DeepSeek model (direct or proxied via OpenRouter)."""
+    bare = (model or "").strip().lower().rsplit("/", 1)[-1]
+    return bare.startswith("deepseek")
+
+
 def _fixed_temperature_for_model(
     model: Optional[str],
     base_url: Optional[str] = None,
@@ -213,6 +219,10 @@ def _fixed_temperature_for_model(
     if _is_kimi_model(model):
         logger.debug("Omitting temperature for Kimi model %r (server-managed)", model)
         return OMIT_TEMPERATURE
+    if _is_deepseek_model(model):
+        # DeepSeek defaults to 1.0 which is far too hot for agent/tool-use tasks.
+        # 0.0 gives deterministic outputs critical for reliable tool selection.
+        return 0.0
     return None
 
 # Default auxiliary models for direct API-key providers (cheap/fast for side tasks)
