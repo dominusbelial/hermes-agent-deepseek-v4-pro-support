@@ -254,6 +254,11 @@ def _is_arcee_trinity_thinking(model: Optional[str]) -> bool:
     bare = (model or "").strip().lower().rsplit("/", 1)[-1]
     return bare == "trinity-large-thinking"
 
+def _is_deepseek_model(model: Optional[str]) -> bool:
+    """True for DeepSeek V4 models (v4-pro, v4-flash)."""
+    bare = (model or "").strip().lower().rsplit("/", 1)[-1]
+    return bare.startswith("deepseek-v4")
+
 
 # Context window enforced by ChatGPT's Codex OAuth backend for gpt-5.5.
 # The raw OpenAI API and OpenRouter expose 1.05M for the same slug, but the
@@ -303,6 +308,10 @@ def _fixed_temperature_for_model(
         return OMIT_TEMPERATURE
     if _is_arcee_trinity_thinking(model):
         return 0.5
+    if _is_deepseek_model(model):
+        # DeepSeek defaults to 1.0 which is far too hot for agent/tool-use tasks.
+        # 0.0 gives deterministic outputs critical for reliable tool selection.
+        return 0.0
     return None
 
 
