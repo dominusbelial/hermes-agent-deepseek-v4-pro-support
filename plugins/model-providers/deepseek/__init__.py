@@ -83,6 +83,7 @@ class DeepSeekProfile(ProviderProfile):
 
 
 deepseek = DeepSeekProfile(
+    fixed_temperature=0.0,
     name="deepseek",
     aliases=("deepseek-chat",),
     env_vars=("DEEPSEEK_API_KEY",),
