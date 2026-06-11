@@ -181,6 +181,35 @@ def _check_invisible_unicode(prompt: str) -> str:
     return ""
 
 
+def _strip_invisible_unicode(prompt: str) -> tuple[str, list[str]]:
+    """Strip invisible-unicode characters from *prompt*, preserving the ZWJ
+    that lives inside legitimate emoji sequences.
+
+    Returns ``(cleaned_prompt, removed_codepoints)`` where ``removed_codepoints``
+    is the sorted list of ``U+XXXX`` labels that were stripped (empty when the
+    prompt was already clean). Used by the skills-attached cron path, where the
+    skill body is already vetted at install time by ``skills_guard.py`` — a
+    stray zero-width space in a code example should be sanitized, not turned
+    into a hard block that permanently kills the job.
+    """
+    if not prompt:
+        return prompt, []
+    # Keep emoji-ZWJ: temporarily remove the legitimate joiners, scan/strip the
+    # rest, then the legitimate joiners survive because we operate on the
+    # original string and only drop chars that are NOT part of an emoji cluster.
+    removed: set[str] = set()
+    cleaned: list[str] = []
+    for idx, ch in enumerate(prompt):
+        if ch in _CRON_INVISIBLE_CHARS:
+            if ch == '\u200d' and _zwj_has_emoji_neighbour(prompt, idx):
+                cleaned.append(ch)  # legitimate emoji joiner — keep
+                continue
+            removed.add(f"U+{ord(ch):04X}")
+            continue
+        cleaned.append(ch)
+    return ''.join(cleaned), sorted(removed)
+
+
 def _scan_cron_prompt(prompt: str) -> str:
     """Scan the USER-SUPPLIED cron prompt for critical threats.
 
@@ -203,27 +232,38 @@ def _scan_cron_prompt(prompt: str) -> str:
     return ""
 
 
-def _scan_cron_skill_assembled(assembled: str) -> str:
+def _scan_cron_skill_assembled(assembled: str) -> tuple[str, str]:
     """Scan an ASSEMBLED cron prompt that includes loaded skill content.
 
     Looser pattern set — only catches unambiguous prompt-injection
-    directives and invisible unicode. Drops command-shape patterns
-    (cat .env, rm -rf /, authorized_keys, /etc/sudoers) because they
-    false-positive on legitimate skill markdown that *describes* attack
-    commands in security postmortems and runbooks.
+    directives. Drops command-shape patterns (cat .env, rm -rf /,
+    authorized_keys, /etc/sudoers) because they false-positive on
+    legitimate skill markdown that *describes* attack commands in
+    security postmortems and runbooks.
 
-    Skill bodies are user-curated and already scanned at install time
-    by `skills_guard.py`. This scan is the runtime tripwire for an
-    obvious injection directive surviving a malicious install.
+    Invisible unicode is SANITIZED, not blocked. Skill bodies are
+    user-curated and already scanned at install time by
+    ``skills_guard.py``; a stray zero-width space in a code example
+    (common in copy-pasted unicode docs) should not permanently kill the
+    job. The offending codepoints are stripped and logged, the cleaned
+    prompt is returned. The hard block remains for raw user prompts via
+    ``_scan_cron_prompt`` — that path is the actual injection surface.
+
+    Returns ``(cleaned_prompt, error)``; ``error`` is empty when the
+    prompt passed (after sanitization).
     """
-    prompt_to_scan = _strip_cron_safe_constructs(assembled)
-    invisible_err = _check_invisible_unicode(prompt_to_scan)
-    if invisible_err:
-        return invisible_err
+    cleaned, removed = _strip_invisible_unicode(assembled)
+    if removed:
+        logger.warning(
+            "Cron skill-assembled prompt: stripped %d invisible-unicode "
+            "char(s) (%s) from vetted skill content",
+            len(removed), ", ".join(removed),
+        )
+    prompt_to_scan = _strip_cron_safe_constructs(cleaned)
     for pattern, pid in _CRON_SKILL_ASSEMBLED_PATTERNS:
         if re.search(pattern, prompt_to_scan, re.IGNORECASE):
-            return f"Blocked: prompt matches threat pattern '{pid}'. Cron prompts must not contain injection or exfiltration payloads."
-    return ""
+            return cleaned, f"Blocked: prompt matches threat pattern '{pid}'. Cron prompts must not contain injection or exfiltration payloads."
+    return cleaned, ""
 
 
 def _origin_from_env() -> Optional[Dict[str, str]]:
@@ -286,15 +326,23 @@ def _resolve_model_override(model_obj: Optional[Dict[str, Any]]) -> tuple:
         return (None, None)
     model_name = (model_obj.get("model") or "").strip() or None
     provider_name = (model_obj.get("provider") or "").strip() or None
-    # Bare "custom" is an incomplete spec — the canonical form is
-    # "custom:<name>" matching a custom_providers entry. LLMs frequently
+    # Bare "custom" is usually an incomplete spec — the canonical form is
+    # "custom:<name>" matching a custom_providers entry, and LLMs frequently
     # supply the bare type because the schema does not advertise the
-    # ":<name>" suffix, which used to bypass the pinning path below and
-    # leave the job stored with an unresolvable "custom" provider. Treat
-    # the bare value as "no provider supplied" so the current main
-    # provider gets pinned instead.
+    # ":<name>" suffix. It is only a problem when it can't resolve at runtime:
+    # a user may literally name a ``providers.custom`` (or custom_providers
+    # "custom") entry, in which case the job should keep ``provider="custom"``
+    # and run against that endpoint. Only when no such entry exists do we treat
+    # the bare value as "no provider supplied" and pin the current main
+    # provider below — otherwise pinning to ``model.provider`` (e.g. codex)
+    # silently hijacks a job that meant to use the configured custom endpoint.
     if provider_name == "custom":
-        provider_name = None
+        try:
+            from hermes_cli.runtime_provider import has_named_custom_provider
+            if not has_named_custom_provider("custom"):
+                provider_name = None
+        except Exception:
+            provider_name = None
     if model_name and not provider_name:
         # Pin to the current main provider so the job is stable
         try:
