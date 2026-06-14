@@ -1195,7 +1195,13 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
                 preview = _build_tool_preview(function_name, function_args) or function_name
                 spinner = KawaiiSpinner(f"{face} {emoji} {preview}", spinner_type='dots', print_fn=agent._print_fn)
                 spinner.start()
+            agent._active_tool_spinner = spinner
             _spinner_result = None
+            try:
+                from model_tools import set_current_agent
+                set_current_agent(agent)
+            except Exception:
+                pass
             try:
                 function_result = _ra().handle_function_call(
                     function_name, function_args, effective_task_id,
@@ -1231,6 +1237,12 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
                 function_result = f"Error executing tool '{function_name}': {tool_error}"
                 logger.error("handle_function_call raised for %s: %s", function_name, tool_error, exc_info=True)
             finally:
+                agent._active_tool_spinner = None
+                try:
+                    from model_tools import set_current_agent
+                    set_current_agent(None)
+                except Exception:
+                    pass
                 tool_duration = time.time() - tool_start_time
                 cute_msg = _get_cute_tool_message_impl(function_name, function_args, tool_duration, result=_spinner_result)
                 if spinner:

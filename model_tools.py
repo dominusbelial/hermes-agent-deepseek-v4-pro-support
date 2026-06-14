@@ -42,6 +42,16 @@ logger = logging.getLogger(__name__)
 _tool_loop = None          # persistent loop for the main (CLI) thread
 _tool_loop_lock = threading.Lock()
 _worker_thread_local = threading.local()  # per-worker-thread persistent loops
+_current_agent_local = threading.local()  # agent executing the current tool call
+
+
+def get_current_agent():
+    """Return the agent currently executing a tool call on this thread, or None."""
+    return getattr(_current_agent_local, "agent", None)
+
+
+def set_current_agent(agent) -> None:
+    _current_agent_local.agent = agent
 
 
 def _get_tool_loop():
