@@ -286,6 +286,31 @@ def _run_pi_rpc(
                     _spinner_print(f"{_QWEN_BADGE}{ln}")
         _text_line_buf = "" if force else remainder
 
+    # File state integration: Pi's file ops registered with Hermes registry
+    # so parallel Pi sessions and Gemma itself can detect stale-write conflicts.
+    _pi_task_id = f"pi:{label}"
+    _fs_cwd = os.path.realpath(cwd or os.getcwd())
+    _PI_WRITE_TOOLS = frozenset({
+        "edit_file", "str_replace", "str_replace_based_edit_tool",
+        "write_file", "create_file", "overwrite_file", "insert_content_at_line",
+    })
+    _PI_READ_TOOLS = frozenset({
+        "read_file", "view_file", "read_many_files",
+    })
+    try:
+        from tools.file_state import record_read as _fs_record_read
+        from tools.file_state import note_write as _fs_note_write
+        _fs_available = True
+    except Exception:
+        _fs_available = False
+
+    def _fs_resolve(path: str) -> str:
+        if os.path.isabs(path):
+            return os.path.realpath(path)
+        return os.path.realpath(os.path.join(_fs_cwd, path))
+
+    _pending_write_path: Optional[str] = None  # set on start, consumed on end
+
     deadline = time.monotonic() + timeout
 
     try:
@@ -368,6 +393,19 @@ def _run_pi_rpc(
                     arg_hint = f" {str(first_val)[:80]}" if first_val else ""
                 _spinner_print(f" ├─ 🔧 [{label}] {tool_name}{arg_hint}")
                 _relay("tool.started", tool_name=tool_name, args=args)
+                # Register file ops with Hermes registry
+                if _fs_available:
+                    _raw_path = (args.get("path") or "").strip()
+                    if _raw_path:
+                        try:
+                            _resolved = _fs_resolve(_raw_path)
+                            if tool_name in _PI_READ_TOOLS:
+                                _fs_record_read(_pi_task_id, _resolved)
+                                _pending_write_path = None
+                            elif tool_name in _PI_WRITE_TOOLS:
+                                _pending_write_path = _resolved
+                        except Exception:
+                            pass
 
             elif etype == "tool_execution_end":
                 tool_name = event.get("toolName", "tool")
@@ -381,6 +419,13 @@ def _run_pi_rpc(
                     _spinner_print(f"{_QWEN_BADGE}✗ {preview}")
                 _relay("tool.completed", tool_name=tool_name, preview=preview,
                        is_error=is_error)
+                # Confirm write only on success
+                if _fs_available and _pending_write_path and not is_error:
+                    try:
+                        _fs_note_write(_pi_task_id, _pending_write_path)
+                    except Exception:
+                        pass
+                _pending_write_path = None
 
             elif etype == "agent_end":
                 break
