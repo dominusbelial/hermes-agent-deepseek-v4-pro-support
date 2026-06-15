@@ -229,9 +229,32 @@ def _run_pi_rpc(
     )
     stderr_thread.start()
 
-    prompt_text = goal
+    # Auto-inject repo file tree so Pi skips discovery tool calls.
+    # Silently skipped if cwd is not a git repo, git is missing, or times out.
+    _repo_tree = ""
+    try:
+        import shutil as _shutil
+        if _shutil.which("git"):
+            _tree_out = subprocess.run(
+                ["git", "ls-files"],
+                cwd=cwd or os.getcwd(),
+                capture_output=True, text=True, timeout=5,
+            )
+            if _tree_out.returncode == 0 and _tree_out.stdout.strip():
+                _repo_tree = _tree_out.stdout.strip()
+    except Exception:
+        pass
+
+    _context_parts = []
+    if _repo_tree:
+        _context_parts.append(f"Repo files (git ls-files):\n{_repo_tree}")
     if context and context.strip():
-        prompt_text = f"{goal}\n\nContext:\n{context}"
+        _context_parts.append(context.strip())
+    _full_context = "\n\n".join(_context_parts)
+
+    prompt_text = goal
+    if _full_context:
+        prompt_text = f"{goal}\n\nContext:\n{_full_context}"
 
     try:
         proc.stdin.write(json.dumps({"type": "prompt", "message": prompt_text}) + "\n")
