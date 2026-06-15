@@ -32,6 +32,11 @@ _DEFAULT_MODEL = os.getenv(
 )
 _DEFAULT_TIMEOUT = 1800.0
 
+# Hard cap: llama-server runs --parallel 2 so at most 2 Pi sessions can run
+# concurrently before the server starts queuing requests.  Enforced here so
+# Gemma cannot accidentally launch a 3rd session that would stall indefinitely.
+_PI_SLOT_SEMAPHORE = threading.Semaphore(2)
+
 # ANSI badge matching Hermes's yellow model-name style
 _QWEN_BADGE = "\033[43;30m 🤖 Qwen3-Coder \033[0m"
 
@@ -199,6 +204,12 @@ def _run_pi_rpc(
             except Exception as exc:
                 logger.debug("pi parent_cb relay failed: %s", exc)
 
+    _spinner_print(f" ├─ ⏳ [{label}] waiting for Pi slot…")
+    acquired = _PI_SLOT_SEMAPHORE.acquire(timeout=timeout)
+    if not acquired:
+        return {"error": f"No Pi slot available after {timeout:.0f}s — both slots busy"}
+    _spinner_print(f" ├─ 🤖 Pi [{label}] starting")
+
     try:
         proc = subprocess.Popen(
             cmd,
@@ -209,6 +220,7 @@ def _run_pi_rpc(
             cwd=cwd or os.getcwd(),
         )
     except Exception as exc:
+        _PI_SLOT_SEMAPHORE.release()
         return {"error": f"Failed to launch pi: {exc}"}
 
     stderr_lines: List[str] = []
@@ -356,6 +368,7 @@ def _run_pi_rpc(
         return {"error": f"Pi RPC stream error: {exc}"}
     finally:
         _flush_text_buf(force=True)
+        _PI_SLOT_SEMAPHORE.release()
         try:
             proc.stdin.close()
         except Exception:
