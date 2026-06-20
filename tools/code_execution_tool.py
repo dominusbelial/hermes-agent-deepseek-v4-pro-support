@@ -66,6 +66,9 @@ SANDBOX_ALLOWED_TOOLS = frozenset([
     "search_files",
     "patch",
     "terminal",
+    "pi_delegate",
+    "pi_spawn",
+    "pi_join",
 ])
 
 # Resource limit defaults (overridable via config.yaml → code_execution.*)
@@ -252,6 +255,24 @@ _TOOL_STUBS = {
         "command: str, timeout: int = None, workdir: str = None",
         '"""Run a shell command (foreground only). Returns dict with "output" and "exit_code"."""',
         '{"command": command, "timeout": timeout, "workdir": workdir}',
+    ),
+    "pi_delegate": (
+        "pi_delegate",
+        "goal: str, context: str = None, cwd: str = None, task_name: str = None",
+        '"""Delegate a coding/analysis task to the Pi (Qwen3-Coder) sub-agent (synchronous). Returns dict with "result"."""',
+        '{"goal": goal, "context": context, "cwd": cwd, "task_name": task_name}',
+    ),
+    "pi_spawn": (
+        "pi_spawn",
+        "goal: str, context: str = None, cwd: str = None, task_name: str = None",
+        '"""Start a Pi sub-agent in the background. Returns dict with task_id. Follow with pi_join."""',
+        '{"goal": goal, "context": context, "cwd": cwd, "task_name": task_name}',
+    ),
+    "pi_join": (
+        "pi_join",
+        "task_ids: list, timeout: float = None",
+        '"""Wait for background Pi agents started with pi_spawn. Returns dict with results keyed by task_id."""',
+        '{"task_ids": task_ids, "timeout": timeout}',
     ),
 }
 

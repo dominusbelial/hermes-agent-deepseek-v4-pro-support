@@ -30,7 +30,8 @@ _DEFAULT_MODEL = os.getenv(
     "PI_DELEGATE_MODEL",
     "Qwen3-Coder-Next-Q4_K_M-00001-of-00004.gguf",
 )
-_DEFAULT_TIMEOUT = 1800.0
+_DEFAULT_TIMEOUT = 600.0   # 10 min; override per-call with the timeout arg
+_DEFAULT_THINKING = os.getenv("PI_DELEGATE_THINKING", "low")
 
 # Hard cap: llama-server runs --parallel 2 so at most 2 Pi sessions can run
 # concurrently before the server starts queuing requests.  Enforced here so
@@ -159,11 +160,13 @@ def _run_pi_rpc(
             )
         }
 
+    thinking = os.getenv("PI_DELEGATE_THINKING", _DEFAULT_THINKING)
     cmd = [
         pi_bin, "--mode", "rpc",
         "--provider", _DEFAULT_PROVIDER,
         "--model", _DEFAULT_MODEL,
         "--no-session",
+        "--thinking", thinking,
     ]
 
     # parent_agent is not forwarded through registry.dispatch — use the

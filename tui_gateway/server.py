@@ -3342,7 +3342,33 @@ def _apply_personality_to_session(
 
     agent = session.get("agent")
     if agent:
-        agent.ephemeral_system_prompt = new_prompt or None
+        # Replace the base system prompt rather than appending as ephemeral.
+        # This matches bash CLI behaviour where personality becomes self.system_prompt
+        # (the base), not an ephemeral overlay. Appending to the existing Hermes
+        # base prompt creates conflicting persona instructions that the model may
+        # ignore. Also persist to session DB so _restore_or_build_system_prompt
+        # doesn't revert on the next turn.
+        if new_prompt:
+            if "_original_system_prompt" not in session:
+                session["_original_system_prompt"] = agent._cached_system_prompt
+            agent._cached_system_prompt = new_prompt
+            agent.ephemeral_system_prompt = None
+            if getattr(agent, "_session_db", None):
+                try:
+                    agent._session_db.update_system_prompt(agent.session_id, new_prompt)
+                except Exception:
+                    pass
+        else:
+            original = session.pop("_original_system_prompt", None)
+            if original:
+                agent._cached_system_prompt = original
+                if getattr(agent, "_session_db", None):
+                    try:
+                        agent._session_db.update_system_prompt(agent.session_id, original)
+                    except Exception:
+                        pass
+            agent.ephemeral_system_prompt = None
+
         # Inject a pivot marker into history so the model sees the change point.
         # This prevents it from pattern-matching its prior style.
         if new_prompt:
