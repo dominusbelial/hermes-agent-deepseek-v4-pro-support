@@ -86,8 +86,12 @@ class StreamingThinkScrubber:
 
     # Materialise literal tag strings so the hot path does string
     # operations, not regex compilation per feed().
-    _OPEN_TAGS: Tuple[str, ...] = tuple(f"<{name}>" for name in _OPEN_TAG_NAMES)
-    _CLOSE_TAGS: Tuple[str, ...] = tuple(f"</{name}>" for name in _OPEN_TAG_NAMES)
+    _OPEN_TAGS: Tuple[str, ...] = tuple(f"<{name}>" for name in _OPEN_TAG_NAMES) + (
+        "<|channel>thought",  # Gemma 4 native thinking token
+    )
+    _CLOSE_TAGS: Tuple[str, ...] = tuple(f"</{name}>" for name in _OPEN_TAG_NAMES) + (
+        "<channel|>",  # Gemma 4 close token
+    )
 
     # Pre-compute the longest tag (for partial-tag hold-back bound).
     _MAX_TAG_LEN: int = max(len(tag) for tag in _OPEN_TAGS + _CLOSE_TAGS)
@@ -360,14 +364,14 @@ class StreamingThinkScrubber:
         scrubber state; it's always noise, stripped with any trailing
         whitespace so the surrounding prose flows naturally.
         """
-        if "</" not in text:
+        if "</" not in text and "<channel|>" not in text.lower():
             return text
         text_lower = text.lower()
         out: list[str] = []
         i = 0
         while i < len(text):
             matched = False
-            if text_lower[i:i + 2] == "</":
+            if text_lower[i:i + 2] == "</" or text_lower[i:i + 9] == "<channel|":
                 for tag in cls._CLOSE_TAGS:
                     tag_lower = tag.lower()
                     tag_len = len(tag_lower)

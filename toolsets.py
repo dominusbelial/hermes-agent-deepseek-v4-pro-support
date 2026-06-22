@@ -237,7 +237,7 @@ TOOLSETS = {
     
     "delegation": {
         "description": "Spawn subagents with isolated context for complex subtasks",
-        "tools": ["delegate_task"],
+        "tools": ["delegate_task", "pi_delegate", "pi_spawn", "pi_join"],
         "includes": []
     },
 
