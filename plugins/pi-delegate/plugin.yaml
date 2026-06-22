@@ -1,0 +1,9 @@
+name: pi-delegate
+version: 1.0.0
+description: "Pi (Qwen3-Coder) sub-agent delegation — pi_delegate (sync), pi_spawn (background), pi_join (collect). Requires the pi binary (@earendil-works/pi-coding-agent) and the llama.cpp proxy at 127.0.0.1:8001."
+author: dominusbelial
+kind: standalone
+provides_tools:
+  - pi_delegate
+  - pi_spawn
+  - pi_join

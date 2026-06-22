@@ -662,37 +662,3 @@ _JOIN_SCHEMA = {
         "required": ["task_ids"],
     },
 }
-
-
-# ---------------------------------------------------------------------------
-# Registry
-# ---------------------------------------------------------------------------
-
-from tools.registry import registry
-
-registry.register(
-    name="pi_delegate",
-    toolset="delegation",
-    schema=_DELEGATE_SCHEMA,
-    handler=pi_delegate,
-    check_fn=check_pi_requirements,
-    emoji="🤖",
-)
-
-registry.register(
-    name="pi_spawn",
-    toolset="delegation",
-    schema=_SPAWN_SCHEMA,
-    handler=pi_spawn,
-    check_fn=check_pi_requirements,
-    emoji="🤖",
-)
-
-registry.register(
-    name="pi_join",
-    toolset="delegation",
-    schema=_JOIN_SCHEMA,
-    handler=pi_join,
-    check_fn=check_pi_requirements,
-    emoji="🤖",
-)
