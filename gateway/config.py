@@ -288,7 +288,13 @@ class SessionResetPolicy:
     idle_minutes: int = 1440  # Minutes of inactivity before reset (24 hours)
     notify: bool = True  # Send a notification to the user when auto-reset occurs
     notify_exclude_platforms: tuple = ("api_server", "webhook")  # Platforms that don't get reset notifications
-    
+    # A background process this many hours old (or older) no longer blocks
+    # session idle/daily reset. A forgotten preview server should not keep a
+    # session alive forever (#29177). The process is NOT killed — only ignored
+    # by the reset guard. Raise this if you run legitimate multi-day jobs whose
+    # liveness should pin the conversation open.
+    bg_process_max_age_hours: int = 24
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "mode": self.mode,
@@ -296,6 +302,7 @@ class SessionResetPolicy:
             "idle_minutes": self.idle_minutes,
             "notify": self.notify,
             "notify_exclude_platforms": list(self.notify_exclude_platforms),
+            "bg_process_max_age_hours": self.bg_process_max_age_hours,
         }
     
     @classmethod
@@ -306,12 +313,14 @@ class SessionResetPolicy:
         idle_minutes = data.get("idle_minutes")
         notify = data.get("notify")
         exclude = data.get("notify_exclude_platforms")
+        bg_max_age = data.get("bg_process_max_age_hours")
         return cls(
             mode=mode if mode is not None else "both",
             at_hour=at_hour if at_hour is not None else 4,
             idle_minutes=idle_minutes if idle_minutes is not None else 1440,
             notify=_coerce_bool(notify, True),
             notify_exclude_platforms=tuple(exclude) if exclude is not None else ("api_server", "webhook"),
+            bg_process_max_age_hours=bg_max_age if bg_max_age is not None else 24,
         )
 
 
@@ -749,7 +758,12 @@ class GatewayConfig:
         )
 
     def get_unauthorized_dm_behavior(self, platform: Optional[Platform] = None) -> str:
-        """Return the effective unauthorized-DM behavior for a platform."""
+        """Return the effective unauthorized-DM behavior for a platform.
+
+        Email is inbox-shaped, not chat-shaped, so it defaults to ``"ignore"``
+        unless ``platforms.email.unauthorized_dm_behavior`` explicitly opts
+        into pairing. A global default does not opt email into pairing.
+        """
         if platform:
             platform_cfg = self.platforms.get(platform)
             if platform_cfg and "unauthorized_dm_behavior" in platform_cfg.extra:
@@ -757,6 +771,8 @@ class GatewayConfig:
                     platform_cfg.extra.get("unauthorized_dm_behavior"),
                     self.unauthorized_dm_behavior,
                 )
+            if platform == Platform.EMAIL:
+                return "ignore"
         return self.unauthorized_dm_behavior
 
     def get_notice_delivery(self, platform: Optional[Platform] = None) -> str:
